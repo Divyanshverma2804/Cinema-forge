@@ -5,7 +5,7 @@ WORKDIR /app
 
 # Copy package files and install dependencies
 COPY portal/package*.json ./
-RUN npm install
+RUN npm install --include=dev
 
 # Copy source files and build
 COPY portal/ .
