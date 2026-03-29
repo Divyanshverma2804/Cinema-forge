@@ -13,11 +13,16 @@ export interface AssetItem {
 
 interface AssetDashboardProps {
   assets: AssetItem[];
+  sfxNeeded: string[];
+  systemSfx: {name: string, filename: string}[];
   onRefreshStock: (sceneName: string, index: number) => void;
   onUpload: (sceneName: string, file: File) => void;
+  onUploadSfx: (name: string, file: File) => void;
 }
 
-const AssetDashboard: React.FC<AssetDashboardProps> = ({ assets, onRefreshStock, onUpload }) => {
+const AssetDashboard: React.FC<AssetDashboardProps> = ({ 
+  assets, sfxNeeded, systemSfx, onRefreshStock, onUpload, onUploadSfx 
+}) => {
   const stockAssets = assets.filter(a => a.asset_type === 'STOCK');
   const userAssets = assets.filter(a => a.asset_type !== 'STOCK');
   const [stockIndices, setStockIndices] = React.useState<Record<string, number>>({});
@@ -30,8 +35,9 @@ const AssetDashboard: React.FC<AssetDashboardProps> = ({ assets, onRefreshStock,
 
   const getAssetUrl = (asset: AssetItem) => {
     if (asset.status === 'ready' && asset.local_path) {
-      // Convert backend path (assets/...) to frontend proxy path (/assets_local/...)
-      return asset.local_path.replace(/^assets[/\\]/, '/assets_local/');
+      // Ensure the path uses forward slashes and is relative to the assets root
+      const relativePath = asset.local_path.replace(/\\/g, '/').replace(/^assets\//, '');
+      return `/assets_local/${relativePath}`;
     }
     return asset.pexels_url;
   };
@@ -109,6 +115,43 @@ const AssetDashboard: React.FC<AssetDashboardProps> = ({ assets, onRefreshStock,
       </div>
 
       <div className="flex-1 overflow-y-auto space-y-6 pr-2 custom-scrollbar">
+        {/* SFX Section */}
+        {sfxNeeded.length > 0 && (
+          <section>
+            <h3 className="text-sm font-semibold text-secondary mb-3 flex items-center gap-2">
+              <Mic className="w-4 h-4" /> Required Sound Effects
+            </h3>
+            <div className="grid grid-cols-1 gap-2">
+              {sfxNeeded.map((sfx, i) => {
+                const isReady = systemSfx.some(s => s.name.toLowerCase() === sfx.toLowerCase());
+                return (
+                  <div key={i} className="bg-background/40 border border-white/5 rounded-lg p-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-mono">{sfx}</span>
+                      {isReady ? (
+                        <CheckCircle className="w-3 h-3 text-green-500" />
+                      ) : (
+                        <Clock className="w-3 h-3 text-amber-500" />
+                      )}
+                    </div>
+                    {!isReady && (
+                      <label className="btn btn-outline py-1 px-2 text-[10px] cursor-pointer flex items-center gap-1">
+                        <Upload className="w-3 h-3" /> Upload
+                        <input 
+                          type="file" 
+                          className="hidden" 
+                          accept=".wav,.mp3"
+                          onChange={(e) => e.target.files?.[0] && onUploadSfx(sfx, e.target.files[0])}
+                        />
+                      </label>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
         {stockAssets.length > 0 && (
           <section>
             <h3 className="text-sm font-semibold text-secondary mb-3 flex items-center gap-2">

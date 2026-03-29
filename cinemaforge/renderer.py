@@ -423,20 +423,31 @@ def build_scene_audio(
 
     # SFX
     for sfx_decl in scene.sfx:
-        sfx_path = os.path.join(SFX_FOLDER, f"{sfx_decl.name}.mp3")
-        if os.path.exists(sfx_path):
+        # Try direct name, then safe name, for .wav and .mp3
+        sfx_path = None
+        names = [sfx_decl.name, re.sub(r"[^\w]", "_", sfx_decl.name.lower())]
+        for n in names:
+            for ext in (".wav", ".mp3"):
+                path = os.path.join(SFX_FOLDER, f"{n}{ext}")
+                if os.path.exists(path):
+                    sfx_path = path
+                    break
+            if sfx_path: break
+
+        if sfx_path:
             try:
+                from moviepy.audio.fx.AudioFadeOut import AudioFadeOut
                 sfx = (
                     AudioFileClip(sfx_path)
-                    .with_volume_scaled(0.6)
                     .with_start(sfx_decl.offset)
+                    .with_volume_scaled(0.6)
+                    .with_effects([AudioFadeOut(0.1)])
                 )
                 layers.append(sfx)
-                log.info(f"[audio] SFX '{sfx_decl.name}' at t={sfx_decl.offset:.1f}s")
             except Exception as e:
                 log.warning(f"[audio] SFX load failed ({sfx_decl.name}): {e}")
         else:
-            log.warning(f"[audio] SFX not found: {sfx_path}")
+            log.warning(f"[audio] SFX not found: {sfx_decl.name}")
 
     return CompositeAudioClip(layers), music_name
 

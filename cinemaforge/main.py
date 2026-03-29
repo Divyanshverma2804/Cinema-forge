@@ -325,9 +325,9 @@ async def upload_voice_ref(
     _user: str = Depends(require_auth)
 ):
     os.makedirs(VOICES_FOLDER, exist_ok=True)
-    safe_name = re.sub(r"[^\w]", "_", speaker_name.lower())
+    # Don't lower/safe the name if it's a custom display name from the prompt
     ext = os.path.splitext(file.filename)[1] or ".wav"
-    out_path = os.path.join(VOICES_FOLDER, f"{safe_name}{ext}")
+    out_path = os.path.join(VOICES_FOLDER, f"{speaker_name}{ext}")
     
     content = await file.read()
     with open(out_path, "wb") as f:
@@ -361,7 +361,7 @@ async def list_voices(_user: str = Depends(require_auth)):
     
     voices = []
     for f in os.listdir(VOICES_FOLDER):
-        if f.endswith((".wav", ".mp3")):
+        if f.lower().endswith((".wav", ".mp3")):
             voices.append({
                 "name": os.path.splitext(f)[0],
                 "filename": f
@@ -369,14 +369,50 @@ async def list_voices(_user: str = Depends(require_auth)):
     return voices
 
 
+@app.get("/sfx")
+async def list_sfx(_user: str = Depends(require_auth)):
+    SFX_FOLDER = os.environ.get("SFX_FOLDER", "sfx")
+    if not os.path.exists(SFX_FOLDER):
+        return []
+    
+    sfx = []
+    for f in os.listdir(SFX_FOLDER):
+        if f.lower().endswith((".wav", ".mp3")):
+            sfx.append({
+                "name": os.path.splitext(f)[0],
+                "filename": f
+            })
+    return sfx
+
+
+@app.post("/sfx/upload/{sfx_name}")
+async def upload_sfx(
+    sfx_name: str,
+    file: UploadFile = File(...),
+    _user: str = Depends(require_auth)
+):
+    SFX_FOLDER = os.environ.get("SFX_FOLDER", "sfx")
+    os.makedirs(SFX_FOLDER, exist_ok=True)
+    ext = os.path.splitext(file.filename)[1] or ".mp3"
+    out_path = os.path.join(SFX_FOLDER, f"{sfx_name}{ext}")
+    
+    content = await file.read()
+    with open(out_path, "wb") as f:
+        f.write(content)
+    
+    return {"ok": True, "name": sfx_name, "path": out_path}
+
+
 @app.get("/voices/play/{speaker_name}")
 async def play_voice_ref(speaker_name: str, _user: str = Depends(require_auth)):
     from fastapi.responses import FileResponse
-    safe_name = re.sub(r"[^\w]", "_", speaker_name.lower())
-    for ext in (".wav", ".mp3"):
-        path = os.path.join(VOICES_FOLDER, f"{safe_name}{ext}")
-        if os.path.exists(path):
-            return FileResponse(path)
+    # Try direct name first, then safe name
+    names_to_try = [speaker_name, re.sub(r"[^\w]", "_", speaker_name.lower())]
+    for name in names_to_try:
+        for ext in (".wav", ".mp3"):
+            path = os.path.join(VOICES_FOLDER, f"{name}{ext}")
+            if os.path.exists(path):
+                return FileResponse(path)
     raise HTTPException(404, "Voice reference not found")
 
 

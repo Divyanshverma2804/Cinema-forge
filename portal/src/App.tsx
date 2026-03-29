@@ -19,25 +19,31 @@ const App: React.FC = () => {
   const [projectId, setProjectId] = useState<string | null>(null);
   const [isParsing, setIsParsing] = useState(false);
   const [assets, setAssets] = useState<AssetItem[]>([]);
+  const [sfxNeeded, setSfxNeeded] = useState<string[]>([]);
   const [voices, setVoices] = useState<VoiceProfile[]>([]);
   const [systemVoices, setSystemVoices] = useState<SystemVoice[]>([]);
+  const [systemSfx, setSystemSfx] = useState<{name: string, filename: string}[]>([]);
   const [status, setStatus] = useState<string>('idle');
   const [error, setError] = useState<string | null>(null);
   const [videoPaths, setVideoPaths] = useState<{ longform?: string, short?: string }>({});
   const [ytVideoId, setYtVideoId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Initial fetch of system voices
+  // Initial fetch of system voices and SFX
   useEffect(() => {
-    const fetchVoices = async () => {
+    const fetchData = async () => {
       try {
-        const res = await axios.get(`${API_BASE}/voices`, { headers: getAuthHeaders() });
-        setSystemVoices(res.data);
+        const [vRes, sRes] = await Promise.all([
+          axios.get(`${API_BASE}/voices`, { headers: getAuthHeaders() }),
+          axios.get(`${API_BASE}/sfx`, { headers: getAuthHeaders() })
+        ]);
+        setSystemVoices(vRes.data);
+        setSystemSfx(sRes.data);
       } catch (err) {
-        console.error("Failed to fetch system voices:", err);
+        console.error("Failed to fetch system resources:", err);
       }
     };
-    fetchVoices();
+    fetchData();
   }, []);
 
   // Poll project status if we have a project ID
@@ -69,6 +75,7 @@ const App: React.FC = () => {
             ...data.manifest.user_upload.map((a: any) => ({ ...a, asset_type: a.asset_type })),
           ];
           setAssets(allAssets);
+          setSfxNeeded(data.manifest.sfx_needed || []);
         }
       } catch (err) {
         console.error('Status poll failed:', err);
@@ -82,6 +89,11 @@ const App: React.FC = () => {
     setIsParsing(true);
     setError(null);
     try {
+      // Clear current project state before submitting new one
+      setProjectId(null);
+      setAssets([]);
+      setVoices([]);
+      
       const formData = new FormData();
       formData.append('script_md', script);
       
@@ -102,6 +114,7 @@ const App: React.FC = () => {
   };
 
   const extractVoices = (script: string) => {
+    // 1. Match dialogue format: # Speaker: Name [emotion]
     const speakerRegex = /^# Speaker:\s*(.+?)\s*\[(.+?)\]$/gm;
     const detected: Record<string, VoiceProfile> = {};
     let match;
@@ -112,6 +125,19 @@ const App: React.FC = () => {
         assigned_voice: undefined,
       };
     }
+
+    // 2. If no speakers found, check for Narration type
+    if (Object.keys(detected).length === 0) {
+      const typeMatch = script.match(/^# Type:\s*narration\s*$/im);
+      if (typeMatch) {
+        detected['Narrator'] = {
+          name: 'Narrator',
+          emotion: 'default',
+          assigned_voice: undefined,
+        };
+      }
+    }
+
     setVoices(Object.values(detected));
   };
 
@@ -171,10 +197,12 @@ const App: React.FC = () => {
   const handleAssignVoice = async (speaker: string, voiceName: string) => {
     if (!projectId) return;
     try {
-      const currentMapping = voices.reduce((acc, v) => ({ 
-        ...acc, 
-        [v.name]: v.assigned_voice 
-      }), {});
+      // Find current mapping from voices state
+      const currentMapping = voices.reduce((acc, v) => {
+        if (v.assigned_voice) acc[v.name] = v.assigned_voice;
+        return acc;
+      }, {} as Record<string, string>);
+      
       const newMapping = { ...currentMapping, [speaker]: voiceName };
       
       await axios.post(`${API_BASE}/projects/${projectId}/voice_map`, newMapping, {
@@ -184,6 +212,20 @@ const App: React.FC = () => {
       setVoices(prev => prev.map(v => v.name === speaker ? { ...v, assigned_voice: voiceName } : v));
     } catch (err) {
       console.error('Assign voice failed:', err);
+    }
+  };
+
+  const handleUploadSfx = async (name: string, file: File) => {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      await axios.post(`${API_BASE}/sfx/upload/${name}`, formData, {
+        headers: getAuthHeaders(),
+      });
+      const res = await axios.get(`${API_BASE}/sfx`, { headers: getAuthHeaders() });
+      setSystemSfx(res.data);
+    } catch (err) {
+      console.error('SFX upload failed:', err);
     }
   };
 
@@ -249,8 +291,11 @@ const App: React.FC = () => {
         <div className="col-span-12 lg:col-span-5 flex flex-col">
           <AssetDashboard 
             assets={assets} 
+            sfxNeeded={sfxNeeded}
+            systemSfx={systemSfx}
             onRefreshStock={handleRefreshStock} 
             onUpload={handleUploadAsset} 
+            onUploadSfx={handleUploadSfx}
           />
         </div>
 
