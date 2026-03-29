@@ -10,14 +10,10 @@ import VideoPreview from './components/VideoPreview';
 
 const API_BASE = '/api';
 
-// Re-enable explicit auth headers since browsers often block automatic prompts for AJAX
+// RELY ON BROWSER AUTH: Stop sending manual headers that might be incorrect.
+// Since we are on the same origin (Port 80), the browser will handle the 401 challenge.
 const getAuthHeaders = () => {
-  // Use VITE_ prefixed vars or defaults
-  const user = import.meta.env.VITE_CINEMA_USER || 'admin';
-  const pass = import.meta.env.VITE_CINEMA_PASSWORD || 'cinemaforge';
-  return {
-    'Authorization': `Basic ${btoa(`${user}:${pass}`)}`,
-  };
+  return {};
 };
 
 const App: React.FC = () => {
