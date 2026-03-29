@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Film, Play, Settings, Terminal, Activity } from 'lucide-react';
 import ScriptEditor from './components/ScriptEditor';
-import AssetDashboard, { AssetItem } from './components/AssetDashboard';
-import VoiceManager, { VoiceProfile, SystemVoice } from './components/VoiceManager';
+import AssetDashboard from './components/AssetDashboard';
+import type { AssetItem } from './components/AssetDashboard';
+import VoiceManager from './components/VoiceManager';
+import type { VoiceProfile, SystemVoice } from './components/VoiceManager';
 import VideoPreview from './components/VideoPreview';
 
 const API_BASE = '/api';
@@ -107,7 +109,7 @@ const App: React.FC = () => {
       detected[match[1]] = {
         name: match[1],
         emotion: match[2],
-        has_ref: false,
+        assigned_voice: undefined,
       };
     }
     setVoices(Object.values(detected));
