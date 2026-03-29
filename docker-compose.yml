@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./data:/app/data
+      - ./assets:/app/assets
+      - ./output_cinema:/app/output_cinema
+      - ./voices:/app/voices
+      - ./music:/app/music
+      - ./sfx:/app/sfx
+      - ./client_secret.json:/app/client_secret.json
+      - ./data/yt_token.json:/app/data/yt_token.json
+    environment:
+      - PEXELS_API_KEY=${PEXELS_API_KEY}
+      - CINEMA_USER=${CINEMA_USER:-admin}
+      - CINEMA_PASSWORD=${CINEMA_PASSWORD:-cinemaforge}
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        - VITE_API_BASE=${VITE_API_BASE:-http://localhost:8001}
+    ports:
+      - "80:80"
+    depends_on:
+      - backend

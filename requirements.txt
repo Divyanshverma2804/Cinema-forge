@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+python-multipart
+sqlalchemy
+requests
+slowapi
+pexels-api-python
+torch
+pydantic
+python-dotenv
+google-api-python-client
+google-auth-oauthlib
+google-auth-httplib2

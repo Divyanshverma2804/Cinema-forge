@@ -1,0 +1,29 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Install system dependencies for audio/video processing
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and install
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the rest of the application
+COPY . .
+
+# Environment variables
+ENV PYTHONUNBUFFERED=1
+ENV CINEMA_DB_PATH=/app/data/cinemaforge.db
+ENV ASSETS_FOLDER=/app/assets
+ENV OUTPUT_FOLDER=/app/output_cinema
+ENV VOICES_FOLDER=/app/voices
+
+# Expose the port
+EXPOSE 8001
+
+# Run the application
+CMD ["uvicorn", "cinemaforge.main:app", "--host", "0.0.0.0", "--port", "8001"]
