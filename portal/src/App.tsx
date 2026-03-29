@@ -10,6 +10,15 @@ import VideoPreview from './components/VideoPreview';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8001';
 
+// Add this function to get auth headers from .env or prompt
+const getAuthHeaders = () => {
+  const user = import.meta.env.VITE_CINEMA_USER || 'admin';
+  const pass = import.meta.env.VITE_CINEMA_PASSWORD || 'cinemaforge';
+  return {
+    Authorization: `Basic ${btoa(`${user}:${pass}`)}`,
+  };
+};
+
 const App: React.FC = () => {
   const [projectId, setProjectId] = useState<string | null>(null);
   const [isParsing, setIsParsing] = useState(false);
@@ -27,7 +36,9 @@ const App: React.FC = () => {
 
     const interval = setInterval(async () => {
       try {
-        const res = await axios.get(`${API_BASE}/projects/${projectId}`);
+        const res = await axios.get(`${API_BASE}/projects/${projectId}`, {
+          headers: getAuthHeaders(),
+        });
         const data = res.data;
         setStatus(data.status);
         setVideoPaths({ longform: data.output_path, short: data.short_path });
@@ -59,7 +70,9 @@ const App: React.FC = () => {
       const formData = new FormData();
       formData.append('script_md', script);
       
-      const res = await axios.post(`${API_BASE}/submit`, formData);
+      const res = await axios.post(`${API_BASE}/submit`, formData, {
+        headers: getAuthHeaders(),
+      });
       if (res.data.ok) {
         setProjectId(res.data.project_id);
         // We also need to extract voices from the script locally for now
@@ -93,6 +106,8 @@ const App: React.FC = () => {
       await axios.post(`${API_BASE}/projects/${projectId}/fetch_stock`, { 
         scene: sceneName,
         index: index
+      }, {
+        headers: getAuthHeaders(),
       });
     } catch (err) {
       console.error('Refresh failed:', err);
@@ -104,7 +119,9 @@ const App: React.FC = () => {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      await axios.post(`${API_BASE}/projects/${projectId}/upload/${sceneName}`, formData);
+      await axios.post(`${API_BASE}/projects/${projectId}/upload/${sceneName}`, formData, {
+        headers: getAuthHeaders(),
+      });
     } catch (err) {
       console.error('Upload failed:', err);
     }
@@ -115,7 +132,9 @@ const App: React.FC = () => {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      await axios.post(`${API_BASE}/voices/upload/${speaker}`, formData);
+      await axios.post(`${API_BASE}/voices/upload/${speaker}`, formData, {
+        headers: getAuthHeaders(),
+      });
       setVoices(prev => prev.map(v => v.name === speaker ? { ...v, has_ref: true } : v));
     } catch (err) {
       console.error('Voice upload failed:', err);
@@ -125,7 +144,9 @@ const App: React.FC = () => {
   const handleRemoveVoiceRef = async (speaker: string) => {
     if (!projectId) return;
     try {
-      await axios.delete(`${API_BASE}/voices/${speaker}`);
+      await axios.delete(`${API_BASE}/voices/${speaker}`, {
+        headers: getAuthHeaders(),
+      });
       setVoices(prev => prev.map(v => v.name === speaker ? { ...v, has_ref: false } : v));
     } catch (err) {
       console.error('Voice delete failed:', err);
@@ -135,7 +156,9 @@ const App: React.FC = () => {
   const handleRender = async () => {
     if (!projectId) return;
     try {
-      await axios.post(`${API_BASE}/projects/${projectId}/render`);
+      await axios.post(`${API_BASE}/projects/${projectId}/render`, {}, {
+        headers: getAuthHeaders(),
+      });
       setStatus('rendering');
     } catch (err) {
       console.error('Render trigger failed:', err);
@@ -145,7 +168,9 @@ const App: React.FC = () => {
   const handleUploadToYoutube = async (format: 'longform' | 'short') => {
     if (!projectId) return;
     try {
-      await axios.post(`${API_BASE}/projects/${projectId}/upload_yt?format=${format}`);
+      await axios.post(`${API_BASE}/projects/${projectId}/upload_yt?format=${format}`, {}, {
+        headers: getAuthHeaders(),
+      });
       setStatus('uploading');
     } catch (err) {
       console.error('YT Upload failed:', err);

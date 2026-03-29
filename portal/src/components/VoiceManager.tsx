@@ -25,9 +25,25 @@ const VoiceManager: React.FC<VoiceManagerProps> = ({ voices, onUploadRef, onRemo
       setPlaying(null);
     } else {
       if (audioRef.current) {
-        audioRef.current.src = `http://localhost:8001/voices/play/${voice.name}`;
-        audioRef.current.play();
-        setPlaying(voice.name);
+        // Since we need Basic Auth, we can't just set src for private files
+        // But we can use fetch with headers and then create a Blob URL
+        const user = 'admin'; // Fallback to defaults
+        const pass = 'cinemaforge';
+        const auth = btoa(`${user}:${pass}`);
+        
+        fetch(`http://localhost:8001/voices/play/${voice.name}`, {
+          headers: { 'Authorization': `Basic ${auth}` }
+        })
+        .then(res => res.blob())
+        .then(blob => {
+          const url = URL.createObjectURL(blob);
+          if (audioRef.current) {
+            audioRef.current.src = url;
+            audioRef.current.play();
+            setPlaying(voice.name);
+          }
+        })
+        .catch(err => console.error("Playback failed:", err));
       }
     }
   };

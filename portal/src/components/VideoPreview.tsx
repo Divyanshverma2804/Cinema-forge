@@ -1,6 +1,5 @@
 import React from 'react';
-import { Play, ExternalLink, Download, Clock, CheckCircle, AlertCircle } from 'lucide-react';
-import { Video } from 'lucide-react';
+import { Play, ExternalLink, Download, Clock, CheckCircle, AlertCircle, Video } from 'lucide-react';
 
 interface VideoPreviewProps {
   status: string;
@@ -15,29 +14,36 @@ interface VideoPreviewProps {
 const VideoPreview: React.FC<VideoPreviewProps> = ({ 
   status, outputPath, shortPath, ytVideoId, errorMsg, onUpload, apiBase 
 }) => {
-  
-  // Convert local filesystem path to a URL that the browser can play
-  // The backend mounts /output to the OUTPUT_FOLDER
-  const getUrl = (path?: string) => {
-    if (!path) return '';
-    // Extract filename from path
-    const filename = path.split(/[/\\]/).pop();
-    // We assume the video is in a project folder inside output_cinema
-    // The backend mount is app.mount("/output", StaticFiles(directory=OUTPUT_FOLDER))
-    // So the URL should be /output/project_id/filename.mp4
-    // However, our backend gives absolute or relative paths.
-    // Let's assume the backend provides paths relative to the project root for now
-    // or we can just use the filename if we know the structure.
-    
-    // For now, let's try to make it work with a simple strategy:
-    // If the path contains 'project_', extract the project folder and filename
-    const match = path.match(/project_\d+[/\\](.+)/);
-    if (match) return `${apiBase}/output/project_${path.match(/project_(\d+)/)?.[1]}/${match[1]}`;
-    return `${apiBase}/output/${filename}`;
-  };
+  const [videoSrc, setVideoSrc] = React.useState<string | null>(null);
 
-  const videoUrl = getUrl(outputPath);
-  const shortUrl = getUrl(shortPath);
+  // Helper to fetch private video with Basic Auth
+  const fetchPrivateVideo = React.useCallback(async (path?: string) => {
+    if (!path) return;
+    
+    const filename = path.split(/[/\\]/).pop();
+    const match = path.match(/project_\d+[/\\](.+)/);
+    const url = match 
+      ? `${apiBase}/output/project_${path.match(/project_(\d+)/)?.[1]}/${match[1]}`
+      : `${apiBase}/output/${filename}`;
+
+    const user = 'admin';
+    const pass = 'cinemaforge';
+    const auth = btoa(`${user}:${pass}`);
+
+    try {
+      const res = await fetch(url, {
+        headers: { 'Authorization': `Basic ${auth}` }
+      });
+      const blob = await res.blob();
+      setVideoSrc(URL.createObjectURL(blob));
+    } catch (err) {
+      console.error("Video fetch failed:", err);
+    }
+  }, [apiBase]);
+
+  React.useEffect(() => {
+    if (outputPath) fetchPrivateVideo(outputPath);
+  }, [outputPath, fetchPrivateVideo]);
 
   if (status === 'idle') return null;
 
@@ -85,10 +91,10 @@ const VideoPreview: React.FC<VideoPreviewProps> = ({
 
       {(status === 'rendered' || status === 'uploading' || status === 'done') && (
         <div className="space-y-4">
-          {videoUrl && (
+          {videoSrc && (
             <div className="space-y-2">
               <p className="text-[10px] text-secondary font-mono uppercase tracking-widest">Main Production (16:9)</p>
-              <video controls src={videoUrl} className="w-full rounded-lg border border-white/10 aspect-video bg-black" />
+              <video controls src={videoSrc} className="w-full rounded-lg border border-white/10 aspect-video bg-black" />
               <div className="flex gap-2">
                 <button 
                   onClick={() => onUpload('longform')}
@@ -99,7 +105,7 @@ const VideoPreview: React.FC<VideoPreviewProps> = ({
                   Upload to YouTube
                 </button>
                 <a 
-                  href={videoUrl} 
+                  href={videoSrc} 
                   download 
                   className="btn btn-outline p-2 rounded-lg"
                   title="Download"
