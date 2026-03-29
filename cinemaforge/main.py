@@ -258,20 +258,33 @@ async def get_project(request: Request, project_id: int, _user: str = Depends(re
     db.close()
     if not p:
         raise HTTPException(404, "Project not found")
+    # data = p.as_dict()
+    # data["voice_mapping"] = json.loads(p.voice_mapping_json) if p.voice_mapping_json else {}
+
+    # # Rebuild live checklist from saved manifest
+    # try:
+    #     # _, _, manifest = parse_script(p.script_md)
+    #     manifest = json.loads(p.manifest_json)
+    #     data["manifest"] = manifest
+    #     data["checklist"] = manifest_to_checklist(manifest)
+    #     # data["manifest"]  = manifest.to_dict()
+    #     data["is_ready"]  = manifest.is_ready()
+    # except Exception as e:
+    #     log.error(f"Error rebuilding manifest: {e}")
+    #     data["checklist"] = "Error reading manifest"
+    #     data["is_ready"]  = False
     data = p.as_dict()
     data["voice_mapping"] = json.loads(p.voice_mapping_json) if p.voice_mapping_json else {}
-
-    # Rebuild live checklist from saved manifest
-    try:
-        _, _, manifest = parse_script(p.script_md)
-        data["checklist"] = manifest_to_checklist(manifest)
-        data["manifest"]  = manifest.to_dict()
-        data["is_ready"]  = manifest.is_ready()
-    except Exception as e:
-        log.error(f"Error rebuilding manifest: {e}")
-        data["checklist"] = "Error reading manifest"
-        data["is_ready"]  = False
     
+    try:
+        manifest = json.loads(p.manifest_json)
+        data["manifest"] = manifest
+        data["is_ready"] = manifest.get("is_ready", False)
+        data["checklist"] = "Loaded from DB"
+    except Exception as e:
+        log.error(f"Error reading manifest: {e}")
+        data["manifest"] = {}
+        data["is_ready"] = False
     return data
 
 

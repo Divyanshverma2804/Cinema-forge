@@ -33,14 +33,19 @@ const AssetDashboard: React.FC<AssetDashboardProps> = ({
     onRefreshStock(sceneName, nextIdx);
   };
 
-  const getAssetUrl = (asset: AssetItem) => {
-    if (asset.status === 'ready' && asset.local_path) {
-      // Ensure the path uses forward slashes and is relative to the assets root
-      const relativePath = asset.local_path.replace(/\\/g, '/').replace(/^assets\//, '');
-      return `/assets_local/${relativePath}`;
-    }
+const getAssetUrl = (asset: AssetItem) => {
+  if (asset.status === 'ready' && asset.local_path) {
+    const relativePath = asset.local_path.replace(/\\/g, '/').replace(/^assets\//, '');
+    return `/assets_local/${relativePath}`;
+  }
+
+  // 🔥 FIX: ensure valid image URL
+  if (asset.pexels_url && asset.pexels_url.startsWith('http')) {
     return asset.pexels_url;
-  };
+  }
+
+  return null;
+};
 
   const AssetCard = ({ asset }: { asset: AssetItem }) => {
     const assetUrl = getAssetUrl(asset);
@@ -61,8 +66,16 @@ const AssetDashboard: React.FC<AssetDashboardProps> = ({
 
         <div className="aspect-video bg-black/40 rounded flex items-center justify-center overflow-hidden border border-white/5 relative group">
           {assetUrl ? (
-            <img src={assetUrl} alt={asset.prompt} className="w-full h-full object-cover" />
-          ) : (
+              <img
+                src={assetUrl}
+                alt={asset.prompt}
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  console.log("Image failed:", assetUrl);
+                  e.currentTarget.style.display = 'none';
+                }}
+              />
+            ) : (
             <div className="text-center p-4">
               {asset.asset_type.includes('VIDEO') ? (
                 <Video className="w-8 h-8 text-secondary mx-auto mb-2" />
