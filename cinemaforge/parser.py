@@ -450,7 +450,15 @@ def manifest_to_checklist(manifest: AssetManifest) -> str:
         lines.append("⬆️  Upload required (generate with Seedance/Leonardo AI):")
         for item in manifest.user_upload:
             status  = "✓ ready" if item.status == "ready" else "❌ MISSING"
-            type_lbl = {"AI_IMAGE": "🖼 AI Image", "AI_VIDEO": "🎬 AI Video", "USER_VIDEO": "📹 Your footage"}.get(item.type, item.type)
+            asset_type = getattr(item, "type", None) or getattr(item, "asset_type", "UNKNOWN")
+
+            type_lbl = {
+                "AI_IMAGE": "🖼 AI Image",
+                "AI_VIDEO": "🎬 AI Video",
+                "USER_VIDEO": "📹 Your footage",
+                "STOCK": "📦 Stock"
+            }.get(asset_type, asset_type)
+            # type_lbl = {"AI_IMAGE": "🖼 AI Image", "AI_VIDEO": "🎬 AI Video", "USER_VIDEO": "📹 Your footage"}.get(item.type, item.type)
             lines.append(f"   [{status}] {type_lbl} — Scene '{item.scene_name}'")
             lines.append(f"            Prompt: {item.prompt}")
             if item.motion != "ken_burns":
