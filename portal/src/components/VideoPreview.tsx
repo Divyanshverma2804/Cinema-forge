@@ -83,7 +83,7 @@ const VideoPreview: React.FC<VideoPreviewProps> = ({
                   disabled={status === 'uploading' || status === 'done'}
                   className="btn btn-primary flex-1 py-2 text-xs flex items-center justify-center gap-2"
                 >
-                  <Youtube className="w-4 h-4" />
+                  <Video className="w-4 h-4" />
                   Upload to YouTube
                 </button>
                 <a 
