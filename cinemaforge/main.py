@@ -97,13 +97,19 @@ _DIST = pathlib.Path(__file__).parent.parent / "portal" / "dist"
 if _DIST.exists():
     app.mount("/assets", StaticFiles(directory=str(_DIST / "assets")), name="assets")
 
-OUTPUT_FOLDER = os.environ.get("OUTPUT_FOLDER", "output_cinema")
-UPLOAD_FOLDER = os.environ.get("ASSETS_FOLDER", "assets")
-os.makedirs(OUTPUT_FOLDER, exist_ok=True)
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+UPLOAD_FOLDER = os.environ.get("ASSETS_FOLDER", "/app/assets")
+OUTPUT_FOLDER = os.environ.get("OUTPUT_FOLDER", "/app/output_cinema")
+VOICES_FOLDER = os.environ.get("VOICES_FOLDER", "/app/voices")
+SFX_FOLDER    = os.environ.get("SFX_FOLDER",    "/app/sfx")
 
-# Mount the output folder so the portal can access rendered videos
+for folder in [UPLOAD_FOLDER, OUTPUT_FOLDER, VOICES_FOLDER, SFX_FOLDER]:
+    os.makedirs(folder, exist_ok=True)
+
+# Mount static files with proper permissions
 app.mount("/output", StaticFiles(directory=OUTPUT_FOLDER), name="output")
+app.mount("/assets", StaticFiles(directory=UPLOAD_FOLDER), name="assets")
+app.mount("/voices", StaticFiles(directory=VOICES_FOLDER), name="voices")
+app.mount("/sfx",    StaticFiles(directory=SFX_FOLDER),    name="sfx")
 
 
 # ── Scan trap ─────────────────────────────────────────────────────
@@ -258,33 +264,28 @@ async def get_project(request: Request, project_id: int, _user: str = Depends(re
     db.close()
     if not p:
         raise HTTPException(404, "Project not found")
-    # data = p.as_dict()
-    # data["voice_mapping"] = json.loads(p.voice_mapping_json) if p.voice_mapping_json else {}
-
-    # # Rebuild live checklist from saved manifest
-    # try:
-    #     # _, _, manifest = parse_script(p.script_md)
-    #     manifest = json.loads(p.manifest_json)
-    #     data["manifest"] = manifest
-    #     data["checklist"] = manifest_to_checklist(manifest)
-    #     # data["manifest"]  = manifest.to_dict()
-    #     data["is_ready"]  = manifest.is_ready()
-    # except Exception as e:
-    #     log.error(f"Error rebuilding manifest: {e}")
-    #     data["checklist"] = "Error reading manifest"
-    #     data["is_ready"]  = False
+    
     data = p.as_dict()
     data["voice_mapping"] = json.loads(p.voice_mapping_json) if p.voice_mapping_json else {}
     
     try:
-        manifest = json.loads(p.manifest_json)
-        data["manifest"] = manifest
-        data["is_ready"] = manifest.get("is_ready", False)
-        data["checklist"] = "Loaded from DB"
+        if p.manifest_json:
+            manifest_dict = json.loads(p.manifest_json)
+            data["manifest"] = manifest_dict
+            data["is_ready"] = manifest_dict.get("is_ready", False)
+        else:
+            # Fallback: try to rebuild if missing
+            _, _, manifest = parse_script(p.script_md)
+            data["manifest"] = manifest.to_dict()
+            data["is_ready"] = manifest.is_ready()
+        
+        data["checklist"] = "Ready" if data["is_ready"] else "Pending assets"
     except Exception as e:
-        log.error(f"Error reading manifest: {e}")
+        log.error(f"Error reading manifest for project {project_id}: {e}")
         data["manifest"] = {}
         data["is_ready"] = False
+        data["checklist"] = f"Error: {str(e)}"
+    
     return data
 
 

@@ -33,19 +33,22 @@ const AssetDashboard: React.FC<AssetDashboardProps> = ({
     onRefreshStock(sceneName, nextIdx);
   };
 
-const getAssetUrl = (asset: AssetItem) => {
-  if (asset.status === 'ready' && asset.local_path) {
-    const relativePath = asset.local_path.replace(/\\/g, '/').replace(/^assets\//, '');
-    return `/assets_local/${relativePath}`;
-  }
-
-  // 🔥 FIX: ensure valid image URL
-  if (asset.pexels_url && asset.pexels_url.startsWith('http')) {
-    return asset.pexels_url;
-  }
-
-  return null;
-};
+  const getAssetUrl = (asset: AssetItem) => {
+    if (asset.status === 'ready' && asset.local_path) {
+      // Robust path resolution: find everything after 'assets/' or 'assets\'
+      const normalizedPath = asset.local_path.replace(/\\/g, '/');
+      const assetsMatch = normalizedPath.match(/\/assets\/(.+)$/) || normalizedPath.match(/^assets\/(.+)$/);
+      const relativePath = assetsMatch ? assetsMatch[1] : normalizedPath.split('/').pop();
+      
+      return `/assets_local/${relativePath}`;
+    }
+    
+    // 🔥 FIX: ensure valid image URL
+    if (asset.pexels_url && asset.pexels_url.startsWith('http')) {
+      return asset.pexels_url;
+    }
+    return null;
+  };
 
   const AssetCard = ({ asset }: { asset: AssetItem }) => {
     const assetUrl = getAssetUrl(asset);

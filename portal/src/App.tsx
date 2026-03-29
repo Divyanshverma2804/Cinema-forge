@@ -10,9 +10,14 @@ import VideoPreview from './components/VideoPreview';
 
 const API_BASE = '/api';
 
-// No need for complex auth headers if we use the same origin proxy
+// Re-enable explicit auth headers since browsers often block automatic prompts for AJAX
 const getAuthHeaders = () => {
-  return {};
+  // Use VITE_ prefixed vars or defaults
+  const user = import.meta.env.VITE_CINEMA_USER || 'admin';
+  const pass = import.meta.env.VITE_CINEMA_PASSWORD || 'cinemaforge';
+  return {
+    'Authorization': `Basic ${btoa(`${user}:${pass}`)}`,
+  };
 };
 
 const App: React.FC = () => {
@@ -61,6 +66,11 @@ const App: React.FC = () => {
         setYtVideoId(data.yt_video_id_en);
         setErrorMsg(data.error_msg);
         
+        // If we don't have voices yet (e.g. after refresh), extract them
+        if (voices.length === 0 && data.script_md) {
+          extractVoices(data.script_md);
+        }
+
         // Re-map mapping to voice profiles
         const mapping = data.voice_mapping || {};
         setVoices(prev => prev.map(v => ({
@@ -83,7 +93,7 @@ const App: React.FC = () => {
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [projectId]);
+  }, [projectId, voices.length]);
 
   const handleParseScript = async (script: string) => {
     setIsParsing(true);
