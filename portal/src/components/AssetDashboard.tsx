@@ -1,5 +1,5 @@
 import React from 'react';
-import { Image, Video, Upload, RefreshCw, CheckCircle, Clock, AlertCircle } from 'lucide-react';
+import { Image, Video, Upload, RefreshCw, CheckCircle, Clock, AlertCircle, Mic } from 'lucide-react';
 import { clsx } from 'clsx';
 
 export interface AssetItem {
