@@ -259,6 +259,7 @@ async def get_project(request: Request, project_id: int, _user: str = Depends(re
     if not p:
         raise HTTPException(404, "Project not found")
     data = p.as_dict()
+    data["voice_mapping"] = json.loads(p.voice_mapping_json) if p.voice_mapping_json else {}
 
     # Rebuild live checklist from saved manifest
     try:
@@ -335,6 +336,39 @@ async def upload_voice_ref(
     return {"ok": True, "speaker": speaker_name, "path": out_path}
 
 
+@app.post("/projects/{project_id}/voice_map")
+async def update_voice_mapping(
+    project_id: int,
+    mapping: dict = Body(...),
+    _user: str = Depends(require_auth)
+):
+    db = Session()
+    p  = db.query(CinemaProject).filter(CinemaProject.id == project_id).first()
+    if not p:
+        db.close()
+        raise HTTPException(404, "Project not found")
+    
+    p.voice_mapping_json = json.dumps(mapping)
+    db.commit()
+    db.close()
+    return {"ok": True}
+
+
+@app.get("/voices")
+async def list_voices(_user: str = Depends(require_auth)):
+    if not os.path.exists(VOICES_FOLDER):
+        return []
+    
+    voices = []
+    for f in os.listdir(VOICES_FOLDER):
+        if f.endswith((".wav", ".mp3")):
+            voices.append({
+                "name": os.path.splitext(f)[0],
+                "filename": f
+            })
+    return voices
+
+
 @app.get("/voices/play/{speaker_name}")
 async def play_voice_ref(speaker_name: str, _user: str = Depends(require_auth)):
     from fastapi.responses import FileResponse
@@ -388,6 +422,29 @@ async def upload_asset(
     with open(out_path, "wb") as f:
         f.write(content)
 
+    # Update manifest in DB
+    db2 = Session()
+    p2  = db2.query(CinemaProject).filter(CinemaProject.id == project_id).first()
+    if p2:
+        # Load existing manifest
+        try:
+            _, _, manifest = parse_script(p2.script_md)
+            # Find the item and update its local_path and status
+            found = False
+            for item in manifest.auto_fetch + manifest.user_upload:
+                if item.scene_name == scene_name:
+                    item.local_path = out_path
+                    item.status = "ready"
+                    found = True
+                    break
+            
+            if found:
+                p2.manifest_json = json.dumps(manifest.to_dict())
+                db2.commit()
+        except Exception as e:
+            log.error(f"Error updating manifest after upload: {e}")
+    db2.close()
+
     log.info(f"[upload] Project #{project_id} scene '{scene_name}': {out_path}")
     return {"ok": True, "scene": scene_name, "path": out_path}
 
@@ -406,6 +463,7 @@ def _do_render(project_id: int):
     p.updated_at = datetime.utcnow()
     db.commit()
     script_md = p.script_md
+    voice_mapping = json.loads(p.voice_mapping_json) if p.voice_mapping_json else {}
     db.close()
 
     try:
@@ -418,7 +476,7 @@ def _do_render(project_id: int):
         # TTS
         tmp_audio = os.path.join(OUTPUT_FOLDER, f"_audio_{project_id}")
         os.makedirs(tmp_audio, exist_ok=True)
-        scene_audios = generate_project_audio(scenes, tmp_audio, meta.name)
+        scene_audios = generate_project_audio(scenes, tmp_audio, meta.name, voice_mapping=voice_mapping)
 
         # Alignment
         stamps_map = {}

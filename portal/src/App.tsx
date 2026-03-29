@@ -2,10 +2,8 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Film, Play, Settings, Terminal, Activity } from 'lucide-react';
 import ScriptEditor from './components/ScriptEditor';
-import AssetDashboard from './components/AssetDashboard';
-import type { AssetItem } from './components/AssetDashboard';
-import VoiceManager from './components/VoiceManager';
-import type { VoiceProfile } from './components/VoiceManager';
+import AssetDashboard, { AssetItem } from './components/AssetDashboard';
+import VoiceManager, { VoiceProfile, SystemVoice } from './components/VoiceManager';
 import VideoPreview from './components/VideoPreview';
 
 const API_BASE = '/api';
@@ -20,11 +18,25 @@ const App: React.FC = () => {
   const [isParsing, setIsParsing] = useState(false);
   const [assets, setAssets] = useState<AssetItem[]>([]);
   const [voices, setVoices] = useState<VoiceProfile[]>([]);
+  const [systemVoices, setSystemVoices] = useState<SystemVoice[]>([]);
   const [status, setStatus] = useState<string>('idle');
   const [error, setError] = useState<string | null>(null);
   const [videoPaths, setVideoPaths] = useState<{ longform?: string, short?: string }>({});
   const [ytVideoId, setYtVideoId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Initial fetch of system voices
+  useEffect(() => {
+    const fetchVoices = async () => {
+      try {
+        const res = await axios.get(`${API_BASE}/voices`, { headers: getAuthHeaders() });
+        setSystemVoices(res.data);
+      } catch (err) {
+        console.error("Failed to fetch system voices:", err);
+      }
+    };
+    fetchVoices();
+  }, []);
 
   // Poll project status if we have a project ID
   useEffect(() => {
@@ -41,8 +53,13 @@ const App: React.FC = () => {
         setYtVideoId(data.yt_video_id_en);
         setErrorMsg(data.error_msg);
         
-        // In a real app, the API would return these structures
-        // For now, we simulate the asset manifest updates
+        // Re-map mapping to voice profiles
+        const mapping = data.voice_mapping || {};
+        setVoices(prev => prev.map(v => ({
+          ...v,
+          assigned_voice: mapping[v.name]
+        })));
+
         if (data.manifest) {
           // Re-map from API format to our frontend format
           const allAssets: AssetItem[] = [
@@ -123,29 +140,48 @@ const App: React.FC = () => {
     }
   };
 
-  const handleUploadVoiceRef = async (speaker: string, file: File) => {
-    if (!projectId) return;
+  const handleUploadVoiceRef = async (name: string, file: File) => {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      await axios.post(`${API_BASE}/voices/upload/${speaker}`, formData, {
+      await axios.post(`${API_BASE}/voices/upload/${name}`, formData, {
         headers: getAuthHeaders(),
       });
-      setVoices(prev => prev.map(v => v.name === speaker ? { ...v, has_ref: true } : v));
+      // Refresh list
+      const res = await axios.get(`${API_BASE}/voices`, { headers: getAuthHeaders() });
+      setSystemVoices(res.data);
     } catch (err) {
       console.error('Voice upload failed:', err);
     }
   };
 
-  const handleRemoveVoiceRef = async (speaker: string) => {
-    if (!projectId) return;
+  const handleRemoveVoiceRef = async (name: string) => {
     try {
-      await axios.delete(`${API_BASE}/voices/${speaker}`, {
+      await axios.delete(`${API_BASE}/voices/${name}`, {
         headers: getAuthHeaders(),
       });
-      setVoices(prev => prev.map(v => v.name === speaker ? { ...v, has_ref: false } : v));
+      setSystemVoices(prev => prev.filter(v => v.name !== name));
     } catch (err) {
       console.error('Voice delete failed:', err);
+    }
+  };
+
+  const handleAssignVoice = async (speaker: string, voiceName: string) => {
+    if (!projectId) return;
+    try {
+      const currentMapping = voices.reduce((acc, v) => ({ 
+        ...acc, 
+        [v.name]: v.assigned_voice 
+      }), {});
+      const newMapping = { ...currentMapping, [speaker]: voiceName };
+      
+      await axios.post(`${API_BASE}/projects/${projectId}/voice_map`, newMapping, {
+        headers: getAuthHeaders(),
+      });
+      
+      setVoices(prev => prev.map(v => v.name === speaker ? { ...v, assigned_voice: voiceName } : v));
+    } catch (err) {
+      console.error('Assign voice failed:', err);
     }
   };
 
@@ -232,8 +268,10 @@ const App: React.FC = () => {
           <div className="flex-1">
             <VoiceManager 
               voices={voices} 
+              systemVoices={systemVoices}
               onUploadRef={handleUploadVoiceRef}
               onRemoveRef={handleRemoveVoiceRef} 
+              onAssignVoice={handleAssignVoice}
             />
           </div>
 

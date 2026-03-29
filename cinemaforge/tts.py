@@ -78,13 +78,24 @@ def _blend_emotions(emotion_str: str) -> dict:
     return {"exaggeration": round(avg_exag, 3), "cfg_weight": round(avg_cfg, 3)}
 
 
-def _get_voice_ref(speaker_name: str) -> str | None:
+def _get_voice_ref(speaker_name: str, voice_mapping: dict = None) -> str | None:
     """
-    Look for a voice reference file in voices/<speaker_name>.[wav|mp3]
-    Used by Chatterbox for voice cloning / style transfer.
+    Looks for a .wav or .mp3 in VOICES_FOLDER that matches the speaker_name
+    or its mapped system voice.
     """
     if not speaker_name:
         return None
+
+    # 1. Check mapping first
+    if voice_mapping and speaker_name in voice_mapping:
+        mapped_name = voice_mapping[speaker_name]
+        safe_mapped = re.sub(r"[^\w]", "_", mapped_name.lower())
+        for ext in (".wav", ".mp3"):
+            path = os.path.join(VOICES_FOLDER, f"{safe_mapped}{ext}")
+            if os.path.exists(path):
+                return path
+
+    # 2. Fallback to direct name match
     safe = re.sub(r"[^\w]", "_", speaker_name.lower())
     for ext in (".wav", ".mp3"):
         path = os.path.join(VOICES_FOLDER, f"{safe}{ext}")
@@ -124,6 +135,7 @@ def generate_scene_wav(
     speaker_name: str | None  = None,
     emotion_str:  str | None  = None,
     section_key:  str | None  = None,
+    voice_mapping: dict = None,
 ) -> str:
     """
     Generate a WAV file for a single scene's narration or dialogue line.
@@ -156,7 +168,7 @@ def generate_scene_wav(
     cfg_weight   = float(os.environ.get("TTS_CFG_WEIGHT",   str(params["cfg_weight"])))
 
     # Resolve voice ref
-    voice_ref = _get_voice_ref(speaker_name) if speaker_name else None
+    voice_ref = _get_voice_ref(speaker_name, voice_mapping=voice_mapping) if speaker_name else None
     if not voice_ref:
         voice_ref = os.environ.get("TTS_VOICE_REF", "").strip() or None
 
@@ -214,6 +226,7 @@ def generate_project_audio(
     scenes:      list,   # list[Scene] from parser
     output_dir:  str,
     project_name: str,
+    voice_mapping: dict = None,
 ) -> list[SceneAudio]:
     """
     Generate audio for every scene in the project.
@@ -245,6 +258,7 @@ def generate_project_audio(
                 speaker_name = None,
                 emotion_str  = scene.speaker_emotion,
                 section_key  = scene.style if scene.style in EMOTION_PARAMS else None,
+                voice_mapping = voice_mapping,
             )
             wav_to_mp3(wav_path, mp3_path)
 
@@ -268,6 +282,7 @@ def generate_project_audio(
                     wav_path     = line_wav,
                     speaker_name = scene.speaker_name,
                     emotion_str  = scene.speaker_emotion,
+                    voice_mapping = voice_mapping,
                 )
                 line_wavs.append(line_wav)
 

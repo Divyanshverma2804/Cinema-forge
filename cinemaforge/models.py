@@ -36,6 +36,7 @@ class CinemaProject(Base):
     script_md     = Column(Text, nullable=False)
     meta_json     = Column(Text, nullable=True)
     manifest_json = Column(Text, nullable=True)
+    voice_mapping_json = Column(Text, nullable=True) # { "Narrator": "morgan_freeman", ... }
 
     status        = Column(SAEnum(ProjectStatus), default=ProjectStatus.pending)
     output_path   = Column(String(512), nullable=True)    # longform .mp4

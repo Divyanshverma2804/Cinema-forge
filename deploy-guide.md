@@ -89,6 +89,6 @@ The following folders will be created automatically in the root:
 1. **Login**: Access the portal at `http://<your-vm-ip>`.
 2. **Script**: Paste your production script in the editor.
 3. **Assets**: Review auto-fetched stock images. Upload AI videos/images for specific scenes.
-4. **Voices**: Upload `.wav` reference files for character cloning.
+4. **Voices**: Use the **Voice Registry** to upload `.wav` reference files. Assign these saved voices to detected characters in your script.
 5. **Production**: Click **Start Production** once all assets are ready.
 6. **Publish**: Preview the result and click **Upload to YouTube** to publish.
