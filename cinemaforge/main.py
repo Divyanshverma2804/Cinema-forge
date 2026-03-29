@@ -93,7 +93,7 @@ app.add_middleware(
 )
 
 import pathlib
-_DIST = pathlib.Path(__file__).parent.parent / "portal_cinema" / "dist"
+_DIST = pathlib.Path(__file__).parent.parent / "portal" / "dist"
 if _DIST.exists():
     app.mount("/assets", StaticFiles(directory=str(_DIST / "assets")), name="assets")
 
