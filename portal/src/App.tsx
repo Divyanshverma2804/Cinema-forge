@@ -8,15 +8,11 @@ import VoiceManager from './components/VoiceManager';
 import type { VoiceProfile } from './components/VoiceManager';
 import VideoPreview from './components/VideoPreview';
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8001';
+const API_BASE = '/api';
 
-// Add this function to get auth headers from .env or prompt
+// No need for complex auth headers if we use the same origin proxy
 const getAuthHeaders = () => {
-  const user = import.meta.env.VITE_CINEMA_USER || 'admin';
-  const pass = import.meta.env.VITE_CINEMA_PASSWORD || 'cinemaforge';
-  return {
-    Authorization: `Basic ${btoa(`${user}:${pass}`)}`,
-  };
+  return {};
 };
 
 const App: React.FC = () => {
@@ -227,10 +223,9 @@ const App: React.FC = () => {
               status={status}
               outputPath={videoPaths.longform}
               shortPath={videoPaths.short}
-              ytVideoId={ytVideoId ?? undefined}
+              ytVideoId={ytVideoId || undefined}
               errorMsg={errorMsg || undefined}
               onUpload={handleUploadToYoutube}
-              apiBase={API_BASE}
             />
           </div>
 

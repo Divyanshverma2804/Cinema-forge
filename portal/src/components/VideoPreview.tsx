@@ -8,42 +8,24 @@ interface VideoPreviewProps {
   ytVideoId?: string;
   errorMsg?: string;
   onUpload: (format: 'longform' | 'short') => void;
-  apiBase: string;
 }
 
 const VideoPreview: React.FC<VideoPreviewProps> = ({ 
-  status, outputPath, shortPath, ytVideoId, errorMsg, onUpload, apiBase 
+  status, outputPath, shortPath, ytVideoId, errorMsg, onUpload 
 }) => {
-  const [videoSrc, setVideoSrc] = React.useState<string | null>(null);
-
-  // Helper to fetch private video with Basic Auth
-  const fetchPrivateVideo = React.useCallback(async (path?: string) => {
-    if (!path) return;
-    
+  // Use relative paths through Nginx proxy
+  const getUrl = (path?: string) => {
+    if (!path) return '';
     const filename = path.split(/[/\\]/).pop();
     const match = path.match(/project_\d+[/\\](.+)/);
-    const url = match 
-      ? `${apiBase}/output/project_${path.match(/project_(\d+)/)?.[1]}/${match[1]}`
-      : `${apiBase}/output/${filename}`;
-
-    const user = 'admin';
-    const pass = 'cinemaforge';
-    const auth = btoa(`${user}:${pass}`);
-
-    try {
-      const res = await fetch(url, {
-        headers: { 'Authorization': `Basic ${auth}` }
-      });
-      const blob = await res.blob();
-      setVideoSrc(URL.createObjectURL(blob));
-    } catch (err) {
-      console.error("Video fetch failed:", err);
+    if (match) {
+      const projectId = path.match(/project_(\d+)/)?.[1];
+      return `/output/project_${projectId}/${match[1]}`;
     }
-  }, [apiBase]);
+    return `/output/${filename}`;
+  };
 
-  React.useEffect(() => {
-    if (outputPath) fetchPrivateVideo(outputPath);
-  }, [outputPath, fetchPrivateVideo]);
+  const videoUrl = getUrl(outputPath);
 
   if (status === 'idle') return null;
 
@@ -91,21 +73,21 @@ const VideoPreview: React.FC<VideoPreviewProps> = ({
 
       {(status === 'rendered' || status === 'uploading' || status === 'done') && (
         <div className="space-y-4">
-          {videoSrc && (
+          {videoUrl && (
             <div className="space-y-2">
               <p className="text-[10px] text-secondary font-mono uppercase tracking-widest">Main Production (16:9)</p>
-              <video controls src={videoSrc} className="w-full rounded-lg border border-white/10 aspect-video bg-black" />
+              <video controls src={videoUrl} className="w-full rounded-lg border border-white/10 aspect-video bg-black" />
               <div className="flex gap-2">
                 <button 
                   onClick={() => onUpload('longform')}
                   disabled={status === 'uploading' || status === 'done'}
                   className="btn btn-primary flex-1 py-2 text-xs flex items-center justify-center gap-2"
                 >
-                  <Video className="w-4 h-4" />
+                  <Youtube className="w-4 h-4" />
                   Upload to YouTube
                 </button>
                 <a 
-                  href={videoSrc} 
+                  href={videoUrl} 
                   download 
                   className="btn btn-outline p-2 rounded-lg"
                   title="Download"
