@@ -281,22 +281,53 @@ def get_live_manifest(project: CinemaProject):
             manifest_dict = manifest.to_dict()
 
         # 2. Sync with disk
+        # Folder for project assets
+        proj_assets_dir = os.path.join(UPLOAD_FOLDER, f"project_{project.id}")
+        os.makedirs(proj_assets_dir, exist_ok=True)
+
         # Check stock assets
         for item in manifest_dict.get("auto_fetch", []):
-            if item.get("local_path") and os.path.exists(item["local_path"]):
+            # Stock images are usually saved as scene_name.jpg in project folder
+            potential_path = os.path.join(proj_assets_dir, f"{item['scene_name']}.jpg")
+            if os.path.exists(potential_path):
+                item["local_path"] = potential_path
                 item["status"] = "ready"
-            elif item.get("status") == "ready": # Path missing but status ready? reset
-                item["status"] = "pending"
-
-        # Check user uploads
-        for item in manifest_dict.get("user_upload", []):
-            if item.get("local_path") and os.path.exists(item["local_path"]):
+            elif item.get("local_path") and os.path.exists(item["local_path"]):
                 item["status"] = "ready"
             else:
                 item["status"] = "pending"
 
+        # Check user uploads
+        for item in manifest_dict.get("user_upload", []):
+            # User uploads can be .jpg, .png, .mp4, .mov
+            found = False
+            safe_scene = re.sub(r"[^\w]", "_", item['scene_name']).lower()
+            for ext in [".jpg", ".png", ".mp4", ".mov", ".jpeg"]:
+                # Try project_id folder (new) and safe_proj folder (old)
+                potential_paths = [
+                    os.path.join(proj_assets_dir, f"{safe_scene}{ext}"),
+                    os.path.join(proj_assets_dir, f"{item['scene_name']}{ext}")
+                ]
+                
+                # Check if old-style safe_proj directory exists and check there too
+                safe_proj = re.sub(r"[^\w]", "_", project.name).lower()
+                old_proj_dir = os.path.join(UPLOAD_FOLDER, safe_proj)
+                if os.path.exists(old_proj_dir):
+                    potential_paths.append(os.path.join(old_proj_dir, f"{safe_scene}{ext}"))
+                    potential_paths.append(os.path.join(old_proj_dir, f"{item['scene_name']}{ext}"))
+
+                for p_path in potential_paths:
+                    if os.path.exists(p_path):
+                        item["local_path"] = p_path
+                        item["status"] = "ready"
+                        found = True
+                        break
+                if found: break
+            
+            if not found:
+                item["status"] = "pending"
+
         # Check SFX
-        SFX_FOLDER = os.environ.get("SFX_FOLDER", "/app/sfx")
         available_sfx = []
         if os.path.exists(SFX_FOLDER):
             available_sfx = [os.path.splitext(f)[0].lower() for f in os.listdir(SFX_FOLDER)]
@@ -529,24 +560,36 @@ async def upload_asset(
     if not p:
         raise HTTPException(404, "Project not found")
 
+    # Try multiple paths for saving
     safe_proj  = re.sub(r"[^\w]", "_", p.name).lower()
     safe_scene = re.sub(r"[^\w]", "_", scene_name).lower()
     ext        = os.path.splitext(file.filename)[1] or ".jpg"
-    out_dir    = os.path.join(UPLOAD_FOLDER, safe_proj)
-    os.makedirs(out_dir, exist_ok=True)
-    out_path   = os.path.join(out_dir, f"{safe_scene}{ext}")
+    
+    # 1. New style: project_{id}
+    out_dir_new = os.path.join(UPLOAD_FOLDER, f"project_{project_id}")
+    os.makedirs(out_dir_new, exist_ok=True)
+    out_path = os.path.join(out_dir_new, f"{safe_scene}{ext}")
 
     content = await file.read()
     with open(out_path, "wb") as f:
         f.write(content)
 
-    # Re-sync manifest with DB
+    # 2. Also save to old style: safe_proj (for legacy compatibility)
+    out_dir_old = os.path.join(UPLOAD_FOLDER, safe_proj)
+    os.makedirs(out_dir_old, exist_ok=True)
+    out_path_old = os.path.join(out_dir_old, f"{safe_scene}{ext}")
+    with open(out_path_old, "wb") as f:
+        f.write(content)
+
+    # 🔥 SYNC MANIFEST IMMEDIATELY
     db2 = Session()
     p2  = db2.query(CinemaProject).filter(CinemaProject.id == project_id).first()
     if p2:
-        # get_live_manifest will see the new file on disk and update status
-        p2.manifest_json = json.dumps(get_live_manifest(p2))
+        # Update manifest by scanning disk
+        new_manifest = get_live_manifest(p2)
+        p2.manifest_json = json.dumps(new_manifest)
         db2.commit()
+        log.info(f"[upload] Synced manifest for project {project_id}. Is ready: {new_manifest.get('is_ready')}")
     db2.close()
 
     log.info(f"[upload] Project #{project_id} scene '{scene_name}': {out_path}")

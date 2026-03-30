@@ -7,6 +7,8 @@ import type { AssetItem } from './components/AssetDashboard';
 import VoiceManager from './components/VoiceManager';
 import type { VoiceProfile, SystemVoice } from './components/VoiceManager';
 import VideoPreview from './components/VideoPreview';
+import { PlusCircle, History, Search } from 'lucide-react';
+import clsx from 'clsx';
 
 const API_BASE = '/api';
 
@@ -16,8 +18,17 @@ const getAuthHeaders = () => {
   return {};
 };
 
+interface ProjectSummary {
+  id: number;
+  name: string;
+  status: string;
+  created_at: string;
+}
+
 const App: React.FC = () => {
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [projectId, setProjectId] = useState<string | null>(null);
+  const [currentScript, setCurrentScript] = useState<string>('');
   const [isParsing, setIsParsing] = useState(false);
   const [assets, setAssets] = useState<AssetItem[]>([]);
   const [sfxNeeded, setSfxNeeded] = useState<string[]>([]);
@@ -30,22 +41,58 @@ const App: React.FC = () => {
   const [ytVideoId, setYtVideoId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Initial fetch of system voices and SFX
+  // Initial fetch of projects, system voices and SFX
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [vRes, sRes] = await Promise.all([
+        const [vRes, sRes, pRes] = await Promise.all([
           axios.get(`${API_BASE}/voices`, { headers: getAuthHeaders() }),
-          axios.get(`${API_BASE}/sfx`, { headers: getAuthHeaders() })
+          axios.get(`${API_BASE}/sfx`, { headers: getAuthHeaders() }),
+          axios.get(`${API_BASE}/projects`, { headers: getAuthHeaders() })
         ]);
         setSystemVoices(vRes.data);
         setSystemSfx(sRes.data);
+        setProjects(pRes.data);
       } catch (err) {
         console.error("Failed to fetch system resources:", err);
       }
     };
     fetchData();
   }, []);
+
+  const handleSelectProject = async (id: number) => {
+    try {
+      const res = await axios.get(`${API_BASE}/projects/${id}`, { headers: getAuthHeaders() });
+      const data = res.data;
+      setProjectId(data.id.toString());
+      setCurrentScript(data.script_md);
+      setStatus(data.status);
+      setVideoPaths({ longform: data.output_path, short: data.short_path });
+      setYtVideoId(data.yt_video_id_en);
+      setErrorMsg(data.error_msg);
+      
+      if (data.manifest) {
+        const allAssets: AssetItem[] = [
+          ...data.manifest.auto_fetch.map((a: any) => ({ ...a, asset_type: 'STOCK' })),
+          ...data.manifest.user_upload.map((a: any) => ({ ...a, asset_type: a.asset_type })),
+        ];
+        setAssets(allAssets);
+        setSfxNeeded(data.manifest.sfx_needed || []);
+      }
+      extractVoices(data.script_md);
+    } catch (err) {
+      console.error("Failed to load project:", err);
+    }
+  };
+
+  const handleNewProject = () => {
+    setProjectId(null);
+    setCurrentScript('');
+    setAssets([]);
+    setVoices([]);
+    setStatus('idle');
+    setVideoPaths({});
+  };
 
   // Poll project status if we have a project ID
   useEffect(() => {
@@ -108,9 +155,10 @@ const App: React.FC = () => {
       });
       if (res.data.ok) {
         setProjectId(res.data.project_id);
-        // We also need to extract voices from the script locally for now
-        // Or wait for the backend to return them
         extractVoices(script);
+        // Refresh project list
+        const pRes = await axios.get(`${API_BASE}/projects`, { headers: getAuthHeaders() });
+        setProjects(pRes.data);
       }
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to parse script');
@@ -265,13 +313,27 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-background p-6 flex flex-col gap-6">
       {/* Header */}
       <header className="flex items-center justify-between border-b border-white/10 pb-6">
-        <div className="flex items-center gap-3">
-          <div className="bg-primary/20 p-2 rounded-lg">
-            <Film className="w-8 h-8 text-primary" />
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-3">
+            <div className="bg-primary/20 p-2 rounded-lg">
+              <Film className="w-8 h-8 text-primary" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-black tracking-tight m-0 uppercase">CINEMA<span className="text-primary">FORGE</span></h1>
+              <p className="text-xs text-secondary font-medium uppercase tracking-widest">Production Engine</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-black tracking-tight m-0">CINEMA<span className="text-primary">FORGE</span></h1>
-            <p className="text-xs text-secondary font-medium uppercase tracking-widest">Production Engine</p>
+
+          <div className="h-10 w-px bg-white/10 hidden lg:block" />
+
+          {/* Project Quick Actions */}
+          <div className="hidden lg:flex items-center gap-2">
+            <button 
+              onClick={handleNewProject}
+              className="btn btn-outline py-2 px-4 flex items-center gap-2 text-sm"
+            >
+              <PlusCircle className="w-4 h-4" /> New Project
+            </button>
           </div>
         </div>
 
@@ -280,21 +342,71 @@ const App: React.FC = () => {
             <Activity className="w-4 h-4 text-green-500" />
             <span className="text-sm font-semibold capitalize">{status}</span>
           </div>
-          <button className="btn btn-outline p-2 rounded-full">
-            <Settings className="w-5 h-5" />
-          </button>
         </div>
       </header>
 
       {/* Main Content Grid */}
       <main className="flex-1 grid grid-cols-12 gap-6 overflow-hidden min-h-0">
-        {/* Left Column: Script Editor */}
-        <div className="col-span-12 lg:col-span-4 flex flex-col">
-          <ScriptEditor onParse={handleParseScript} isParsing={isParsing} />
+        {/* Left Column: Projects & Script */}
+        <div className="col-span-12 lg:col-span-4 flex flex-col gap-6 overflow-hidden">
+          {/* Projects List / Drafting Diary */}
+          <div className="card flex flex-col gap-4 max-h-[300px] overflow-hidden">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold flex items-center gap-2">
+                <History className="w-5 h-5 text-accent" />
+                Drafting Diary
+              </h2>
+              <span className="text-[10px] text-secondary bg-white/5 px-2 py-0.5 rounded uppercase font-bold tracking-tighter">
+                {projects.length} Saved
+              </span>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-2">
+              {projects.length === 0 ? (
+                <div className="text-center py-8 text-secondary/50 flex flex-col items-center gap-2">
+                  <Search className="w-8 h-8 opacity-20" />
+                  <p className="text-xs">No saved projects found</p>
+                </div>
+              ) : (
+                projects.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => handleSelectProject(p.id)}
+                    className={clsx(
+                      "w-full text-left p-3 rounded-lg border transition-all group flex items-center justify-between",
+                      projectId === p.id.toString() 
+                        ? "bg-primary/10 border-primary/30" 
+                        : "bg-white/5 border-transparent hover:bg-white/10"
+                    )}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-bold truncate group-hover:text-primary transition-colors">
+                        {p.name}
+                      </div>
+                      <div className="text-[10px] text-secondary mt-1 flex items-center gap-2">
+                        <span>{new Date(p.created_at).toLocaleDateString()}</span>
+                        <span className="w-1 h-1 bg-white/20 rounded-full" />
+                        <span className="capitalize">{p.status}</span>
+                      </div>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Script Editor */}
+          <div className="flex-1 overflow-hidden min-h-[400px]">
+            <ScriptEditor 
+              onParse={handleParseScript} 
+              isParsing={isParsing} 
+              initialScript={currentScript} 
+            />
+          </div>
         </div>
 
         {/* Middle Column: Assets Dashboard */}
-        <div className="col-span-12 lg:col-span-5 flex flex-col">
+        <div className="col-span-12 lg:col-span-5 flex flex-col overflow-hidden">
           <AssetDashboard 
             assets={assets} 
             sfxNeeded={sfxNeeded}
@@ -331,23 +443,23 @@ const App: React.FC = () => {
           {/* Render Control */}
           <div className="card bg-primary/10 border-primary/20 flex flex-col gap-4">
             <div className="flex items-center justify-between">
-              <h3 className="font-bold flex items-center gap-2">
+              <h3 className="font-bold flex items-center gap-2 text-sm">
                 <Terminal className="w-4 h-4" /> Ready to Render?
               </h3>
             </div>
-            <p className="text-xs text-secondary">
+            <p className="text-[11px] text-secondary leading-relaxed">
               Rendering will combine all assets, generate TTS, and composite the final video.
             </p>
             <button 
               disabled={!isReadyToRender || status === 'rendering'}
               onClick={handleRender}
-              className="btn btn-primary w-full flex items-center justify-center gap-2 py-3"
+              className="btn btn-primary w-full flex items-center justify-center gap-2 py-3 font-bold tracking-tight"
             >
               <Play className="w-4 h-4 fill-current" />
               START PRODUCTION
             </button>
             {!isReadyToRender && assets.length > 0 && (
-              <p className="text-[10px] text-amber-500 text-center font-medium">
+              <p className="text-[10px] text-amber-500 text-center font-medium animate-pulse">
                 Waiting for {assets.filter(a => a.status !== 'ready').length} assets to be finalized.
               </p>
             )}

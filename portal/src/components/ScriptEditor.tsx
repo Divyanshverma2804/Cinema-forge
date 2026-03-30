@@ -4,10 +4,30 @@ import { Send, FileText } from 'lucide-react';
 interface ScriptEditorProps {
   onParse: (script: string) => void;
   isParsing: boolean;
+  initialScript?: string;
 }
 
-const ScriptEditor: React.FC<ScriptEditorProps> = ({ onParse, isParsing }) => {
-  const [script, setScript] = useState('');
+const ScriptEditor: React.FC<ScriptEditorProps> = ({ onParse, isParsing, initialScript = '' }) => {
+  const [script, setScript] = useState(initialScript);
+
+  React.useEffect(() => {
+    setScript(initialScript);
+  }, [initialScript]);
+
+  // Local auto-save to localStorage
+  React.useEffect(() => {
+    if (script) {
+      localStorage.setItem('cinemaforge_draft', script);
+    }
+  }, [script]);
+
+  // Load from localStorage on mount if no initialScript
+  React.useEffect(() => {
+    if (!initialScript) {
+      const saved = localStorage.getItem('cinemaforge_draft');
+      if (saved) setScript(saved);
+    }
+  }, []);
 
   return (
     <div className="card h-full flex flex-col gap-4">
