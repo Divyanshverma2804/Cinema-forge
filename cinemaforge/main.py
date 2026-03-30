@@ -203,46 +203,57 @@ async def submit_project(
     _user: str  = Depends(require_auth),
 ):
     try:
+        # 1. Parse to get metadata and scenes
         meta, scenes, manifest = parse_script(script_md)
-    except ValueError as e:
-        raise HTTPException(400, f"Script parse error: {e}")
+        
+        # 2. Check if a project with this name already exists
+        db = Session()
+        existing = db.query(CinemaProject).filter(CinemaProject.name == meta.name).first()
+        
+        if existing:
+            # Update existing project script and metadata
+            existing.script_md = script_md
+            existing.meta_json = json.dumps(meta.__dict__)
+            # get_live_manifest will sync with disk
+            existing.manifest_json = json.dumps(get_live_manifest(existing))
+            pid = existing.id
+            db.commit()
+            log.info(f"[submit] Updated existing project: {meta.name} (ID: {pid})")
+        else:
+            # Create new project
+            project = CinemaProject(
+                project_id    = str(uuid.uuid4())[:8],
+                name          = meta.name,
+                script_md     = script_md,
+                meta_json     = json.dumps(meta.__dict__),
+                manifest_json = json.dumps(manifest.to_dict()),
+                status        = ProjectStatus.pending,
+            )
+            db.add(project)
+            db.commit()
+            pid = project.id
+            log.info(f"[submit] Created new project: {meta.name} (ID: {pid})")
+        
+        db.close()
 
-    db      = Session()
-    project = CinemaProject(
-        project_id    = str(uuid.uuid4())[:8],
-        name          = meta.name,
-        script_md     = script_md,
-        meta_json     = json.dumps(meta.__dict__),
-        manifest_json = json.dumps(manifest.to_dict()),
-        status        = ProjectStatus.pending,
-    )
-    db.add(project)
-    db.commit()
-    pid = project.id
-    db.close()
+        # 3. Trigger stock fetching in background
+        def _fetch():
+            _meta, _scenes, _manifest = parse_script(script_md)
+            results = fetch_all_stock(_manifest)
+            log.info(f"[stock] Project #{pid}: {results}")
+            db2 = Session()
+            p2 = db2.query(CinemaProject).filter(CinemaProject.id == pid).first()
+            if p2:
+                p2.manifest_json = json.dumps(get_live_manifest(p2))
+                db2.commit()
+            db2.close()
 
-    # Auto-fetch stock assets in background
-    def _fetch():
-        _meta, _scenes, _manifest = parse_script(script_md)
-        results = fetch_all_stock(_manifest)
-        log.info(f"[stock] Project #{pid}: {results}")
-        # Update manifest in DB
-        db2 = Session()
-        p   = db2.query(CinemaProject).filter(CinemaProject.id == pid).first()
-        if p:
-            p.manifest_json = json.dumps(_manifest.to_dict())
-            db2.commit()
-        db2.close()
+        threading.Thread(target=_fetch, daemon=True).start()
 
-    threading.Thread(target=_fetch, daemon=True).start()
-
-    return JSONResponse({
-        "ok":         True,
-        "project_id": pid,
-        "name":       meta.name,
-        "scenes":     len(scenes),
-        "checklist":  manifest_to_checklist(manifest),
-    })
+        return {"ok": True, "project_id": pid}
+    except Exception as e:
+        log.error(f"Submit failed: {e}")
+        raise HTTPException(500, f"Submission failed: {str(e)}")
 
 
 # ── List projects ─────────────────────────────────────────────────
@@ -256,36 +267,89 @@ async def list_projects(request: Request, _user: str = Depends(require_auth)):
     return [p.as_dict() for p in projects]
 
 
+def get_live_manifest(project: CinemaProject):
+    """
+    Returns a manifest dictionary that is synced with disk.
+    If no manifest exists in DB, it creates one from the script.
+    """
+    try:
+        # 1. Start with what's in DB or a fresh one from script
+        if project.manifest_json:
+            manifest_dict = json.loads(project.manifest_json)
+        else:
+            _, _, manifest = parse_script(project.script_md)
+            manifest_dict = manifest.to_dict()
+
+        # 2. Sync with disk
+        # Check stock assets
+        for item in manifest_dict.get("auto_fetch", []):
+            if item.get("local_path") and os.path.exists(item["local_path"]):
+                item["status"] = "ready"
+            elif item.get("status") == "ready": # Path missing but status ready? reset
+                item["status"] = "pending"
+
+        # Check user uploads
+        for item in manifest_dict.get("user_upload", []):
+            if item.get("local_path") and os.path.exists(item["local_path"]):
+                item["status"] = "ready"
+            else:
+                item["status"] = "pending"
+
+        # Check SFX
+        SFX_FOLDER = os.environ.get("SFX_FOLDER", "/app/sfx")
+        available_sfx = []
+        if os.path.exists(SFX_FOLDER):
+            available_sfx = [os.path.splitext(f)[0].lower() for f in os.listdir(SFX_FOLDER)]
+        
+        manifest_dict["sfx_ready"] = []
+        for sfx in manifest_dict.get("sfx_needed", []):
+            if sfx.lower() in available_sfx:
+                manifest_dict["sfx_ready"].append(sfx)
+
+        # 3. Calculate overall readiness
+        all_ready = True
+        for item in manifest_dict.get("auto_fetch", []) + manifest_dict.get("user_upload", []):
+            if item.get("status") != "ready":
+                all_ready = False
+                break
+        
+        if all_ready:
+            for sfx in manifest_dict.get("sfx_needed", []):
+                if sfx not in manifest_dict["sfx_ready"]:
+                    all_ready = False
+                    break
+        
+        manifest_dict["is_ready"] = all_ready
+        return manifest_dict
+    except Exception as e:
+        log.error(f"Error syncing manifest: {e}")
+        return {}
+
 @app.get("/projects/{project_id}", response_class=JSONResponse)
 @limiter.limit("60/minute")
 async def get_project(request: Request, project_id: int, _user: str = Depends(require_auth)):
     db = Session()
     p  = db.query(CinemaProject).filter(CinemaProject.id == project_id).first()
-    db.close()
     if not p:
+        db.close()
         raise HTTPException(404, "Project not found")
     
     data = p.as_dict()
     data["voice_mapping"] = json.loads(p.voice_mapping_json) if p.voice_mapping_json else {}
     
-    try:
-        if p.manifest_json:
-            manifest_dict = json.loads(p.manifest_json)
-            data["manifest"] = manifest_dict
-            data["is_ready"] = manifest_dict.get("is_ready", False)
-        else:
-            # Fallback: try to rebuild if missing
-            _, _, manifest = parse_script(p.script_md)
-            data["manifest"] = manifest.to_dict()
-            data["is_ready"] = manifest.is_ready()
-        
-        data["checklist"] = "Ready" if data["is_ready"] else "Pending assets"
-    except Exception as e:
-        log.error(f"Error reading manifest for project {project_id}: {e}")
-        data["manifest"] = {}
-        data["is_ready"] = False
-        data["checklist"] = f"Error: {str(e)}"
+    # Get synced manifest
+    manifest = get_live_manifest(p)
+    data["manifest"] = manifest
+    data["is_ready"] = manifest.get("is_ready", False)
+    data["checklist"] = "Ready" if data["is_ready"] else "Pending assets"
     
+    # Save back the synced manifest only if it was missing or changed
+    new_manifest_json = json.dumps(manifest)
+    if p.manifest_json != new_manifest_json:
+        p.manifest_json = new_manifest_json
+        db.commit()
+    
+    db.close()
     return data
 
 
@@ -318,11 +382,14 @@ async def fetch_stock_scene(
     ok = fetch_pexels_asset(item, meta.name, index=index)
     
     if ok:
-        # Update manifest in DB
+        # Re-sync manifest with DB
         db2 = Session()
         p2 = db2.query(CinemaProject).filter(CinemaProject.id == project_id).first()
         if p2:
-            p2.manifest_json = json.dumps(manifest.to_dict())
+            # We don't need to manually update JSON here because get_project
+            # or subsequent calls will use get_live_manifest which checks disk.
+            # But let's trigger a sync just in case.
+            p2.manifest_json = json.dumps(get_live_manifest(p2))
             db2.commit()
         db2.close()
         return {"ok": True, "pexels_url": item.pexels_url}
@@ -338,6 +405,7 @@ async def upload_voice_ref(
     file: UploadFile = File(...),
     _user: str = Depends(require_auth)
 ):
+    VOICES_FOLDER = os.environ.get("VOICES_FOLDER", "/app/voices")
     os.makedirs(VOICES_FOLDER, exist_ok=True)
     # Don't lower/safe the name if it's a custom display name from the prompt
     ext = os.path.splitext(file.filename)[1] or ".wav"
@@ -405,7 +473,7 @@ async def upload_sfx(
     file: UploadFile = File(...),
     _user: str = Depends(require_auth)
 ):
-    SFX_FOLDER = os.environ.get("SFX_FOLDER", "sfx")
+    SFX_FOLDER = os.environ.get("SFX_FOLDER", "/app/sfx")
     os.makedirs(SFX_FOLDER, exist_ok=True)
     ext = os.path.splitext(file.filename)[1] or ".mp3"
     out_path = os.path.join(SFX_FOLDER, f"{sfx_name}{ext}")
@@ -472,27 +540,13 @@ async def upload_asset(
     with open(out_path, "wb") as f:
         f.write(content)
 
-    # Update manifest in DB
+    # Re-sync manifest with DB
     db2 = Session()
     p2  = db2.query(CinemaProject).filter(CinemaProject.id == project_id).first()
     if p2:
-        # Load existing manifest
-        try:
-            _, _, manifest = parse_script(p2.script_md)
-            # Find the item and update its local_path and status
-            found = False
-            for item in manifest.auto_fetch + manifest.user_upload:
-                if item.scene_name == scene_name:
-                    item.local_path = out_path
-                    item.status = "ready"
-                    found = True
-                    break
-            
-            if found:
-                p2.manifest_json = json.dumps(manifest.to_dict())
-                db2.commit()
-        except Exception as e:
-            log.error(f"Error updating manifest after upload: {e}")
+        # get_live_manifest will see the new file on disk and update status
+        p2.manifest_json = json.dumps(get_live_manifest(p2))
+        db2.commit()
     db2.close()
 
     log.info(f"[upload] Project #{project_id} scene '{scene_name}': {out_path}")

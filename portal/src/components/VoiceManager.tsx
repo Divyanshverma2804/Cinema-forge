@@ -37,8 +37,8 @@ const VoiceManager: React.FC<VoiceManagerProps> = ({
       setPlaying(null);
     } else {
       if (audioRef.current) {
-        // Relative path through proxy
-        audioRef.current.src = `/voices/play/${voiceName}`;
+        // Relative path through proxy with cache buster
+        audioRef.current.src = `/voices/play/${voiceName}?t=${Date.now()}`;
         audioRef.current.play();
         setPlaying(voiceName);
       }

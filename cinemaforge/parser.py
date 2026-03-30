@@ -359,6 +359,10 @@ def fetch_pexels_asset(item: AssetItem, project_name: str, index: int = 0) -> bo
 
     log.info(f"[pexels] Fetching (idx={index}): '{item.prompt}' for scene '{item.scene_name}'")
     try:
+        # Clear existing file to force re-download for "Try Another"
+        if os.path.exists(out_path):
+            os.remove(out_path)
+
         resp = requests.get(
             "https://api.pexels.com/v1/search",
             headers={"Authorization": PEXELS_API_KEY},

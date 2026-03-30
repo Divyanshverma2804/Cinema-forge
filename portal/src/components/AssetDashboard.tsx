@@ -40,7 +40,8 @@ const AssetDashboard: React.FC<AssetDashboardProps> = ({
       const assetsMatch = normalizedPath.match(/\/assets\/(.+)$/) || normalizedPath.match(/^assets\/(.+)$/);
       const relativePath = assetsMatch ? assetsMatch[1] : normalizedPath.split('/').pop();
       
-      return `/assets_local/${relativePath}`;
+      // Add cache-buster for "Try Another" or re-uploads
+      return `/assets_local/${relativePath}?t=${Date.now()}`;
     }
     
     // 🔥 FIX: ensure valid image URL
